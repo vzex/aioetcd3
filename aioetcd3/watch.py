@@ -148,8 +148,11 @@ class _Pipe(object):
             await self._full_notify.wait()
         
     async def wait_empty(self):
-        while self.is_empty():
-            await self._notify.wait()
+        try:
+            while self.is_empty():
+                await self._notify.wait()
+        except:
+            pass
 
 
 async def _select(pipes, futures, *, loop=None):
