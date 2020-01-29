@@ -182,6 +182,14 @@ class CompactRevisonException(WatchException):
         return CompactRevisonException(self.revision)
 
 
+class EtcdForceCancelException(WatchException):
+    def __init__(self, cancel_reason):
+        super().__init__(f"Etcd Force Watch cancelled: {cancel_reason}")
+        self.cancel_reason = cancel_reason
+    
+    def _clone(self):
+        return EtcdForceCancelException(self.cancel_reason)
+
 class ServerCancelException(WatchException):
     def __init__(self, cancel_reason):
         super().__init__(f"Watch cancelled: {cancel_reason}")
@@ -342,6 +350,16 @@ class Watch(StubMixin):
                             for response in outputs:
                                 if response.created:
                                     assert pending_create_request is not None
+                                    if pending_create_request[0].start_revision > response.header.revision:
+                                        exc = EtcdForceCancelException(f"etcd need rewatch:{pending_create_request[0].key}")
+                                        pending_create_request[1].put_nowait((False, exc, response.header.revision))
+                                        if pending_create_request[2] is not None and not \
+                                                pending_create_request[2].done():
+                                            pending_create_request[2].set_exception(exc)
+                                        if pending_create_request[3] is not None and not \
+                                                pending_create_request[3].done():
+                                            pending_create_request[3].set_result(True)
+
                                     if response.compact_revision > 0:
                                         # Cancelled (Is it possible?)
                                         exc = CompactRevisonException(response.compact_revision)
@@ -528,6 +546,8 @@ class Watch(StubMixin):
                         continue
                     else:
                         raise
+                except EtcdForceCancelException:
+                    raise
                 except CancelledError:
                     raise
                 except Exception:
